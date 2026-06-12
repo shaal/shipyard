@@ -18,14 +18,26 @@ The point is the **confidence gate**. Each task is scored on four 0–25 axes �
 
 ## Install
 
-Needs **[Node.js](https://nodejs.org) 18+**, **git**, and **Claude Code** on your `PATH`. Works on **Windows, macOS, and Linux**.
+Needs **[Node.js](https://nodejs.org) 18+**, **git**, and **Claude Code** on your `PATH`. Works on **Windows, macOS, and Linux**. Pick either — **no `npm install` required**:
+
+**Zero-install (npx)** — nothing left on your system but the skill files:
+
+```bash
+npx @shaal/shipyard init     # one-time: add /ship + /ship-next to ~/.claude
+npx @shaal/shipyard 5        # run the loop (prefix every command with npx)
+```
+
+**Global install** — shorter command, nicer if you'll use it often:
 
 ```bash
 npm install -g @shaal/shipyard
-shipyard init        # installs the /ship skill + /ship-next command into ~/.claude
+shipyard init
+shipyard 5
 ```
 
-`shipyard init` copies the skill into `~/.claude/skills/ship/` and the command into `~/.claude/commands/ship-next.md` (cross-platform — it uses your home dir, no symlinks). Restart Claude Code and `/ship` + `/ship-next` are available everywhere.
+Run `… init` **once either way**: it copies the `/ship` skill into `~/.claude/skills/ship/` and the `/ship-next` command into `~/.claude/commands/ship-next.md` (cross-platform — uses your home dir, no symlinks). This is a *file copy* Claude Code loads from disk, so it's needed even with npx. Restart Claude Code and `/ship` + `/ship-next` are available everywhere.
+
+> Before it's on npm, run straight from GitHub: `npx github:shaal/shipyard init`. With npx, pin freshness via `npx @shaal/shipyard@latest …` to dodge a stale cache.
 
 ## Quick start
 
@@ -36,6 +48,8 @@ shipyard 5          # ship up to 5 tasks, each behind the gate, one commit each
 shipyard            # ship until the backlog is empty or progress stalls
 shipyard --dry-run  # show the plan + exact command, run nothing
 ```
+
+> Using npx instead of a global install? Prefix each command: `npx @shaal/shipyard 5`.
 
 Each iteration runs `claude -p "/ship-next"`, which finds the next unchecked task, completes it, runs an adversarial review, scores the gate, and commits it locally. Shipyard watches your git `HEAD`: if an iteration makes **no commit** (a task parked), it counts that as no-progress and stops after a couple of those — so it halts instead of spinning.
 
