@@ -1,0 +1,42 @@
+{
+  "name": "@shaal/shipyard",
+  "version": "0.1.0",
+  "description": "Drain a backlog one quality-gated task at a time with Claude Code — a confidence-gate skill (/ship), an unattended driver (/ship-next), and a cross-platform loop runner (shipyard).",
+  "type": "module",
+  "bin": {
+    "shipyard": "bin/shipyard.js"
+  },
+  "files": [
+    "bin/",
+    "assets/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node bin/shipyard.js --dry-run 1"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "skill",
+    "automation",
+    "agent",
+    "cli",
+    "backlog",
+    "confidence-gate",
+    "ship"
+  ],
+  "license": "MIT",
+  "author": "Ofer Shaal",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shaal/shipyard.git"
+  },
+  "homepage": "https://github.com/shaal/shipyard#readme",
+  "bugs": {
+    "url": "https://github.com/shaal/shipyard/issues"
+  }
+}
