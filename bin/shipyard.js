@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // shipyard — drain a backlog one quality-gated task at a time, by looping a
-// Claude Code command (default /ship-next). Cross-platform (Windows/macOS/Linux).
+// Claude Code command (default /ship-next). Each task branches off the target
+// branch, then ships via a squash-merged GitHub PR. Cross-platform (Win/mac/Linux).
 // Part of @shaal/shipyard. MIT © Ofer Shaal.
 
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
@@ -65,7 +66,9 @@ Env vars (all optional):
   SHIPYARD_MCP=off                   off (default) drops all MCP servers (faster);
                                      'on' keeps them.
   SHIPYARD_PROGRESS_REF=HEAD         git ref whose advance means "a task shipped".
-                                     Use origin/<branch> for a push/PR flow.
+                                     Default works for the PR flow: each task ends
+                                     back on the target branch, fast-forwarded to
+                                     the merge, so local HEAD advances.
   SHIPYARD_READY_CMD=                command that SUCCEEDS while work remains.
                                      Auto: 'bd ready' in a beads workspace, else
                                      stall-detection only.
@@ -162,6 +165,14 @@ function runClaude(args, logPath) {
 async function loop({ maxIter, dryRun }) {
   for (const c of ['claude', 'git']) {
     if (!commandExists(c)) { err(`✗ required command not found on PATH: ${c}`); process.exit(1); }
+  }
+  // The default /ship-next flow ships each task via a GitHub PR (push → gh pr
+  // create → gh pr merge --admin), so it needs the GitHub CLI. Warn rather than
+  // exit: a project may override SHIPYARD_CMD with a non-PR command.
+  if (!commandExists('gh')) {
+    err(`⚠ 'gh' (GitHub CLI) not found on PATH — the default /ship-next opens and`);
+    err(`  merges a PR per task and will stop at that step without it. Install it`);
+    err(`  (https://cli.github.com) and run 'gh auth login', or override SHIPYARD_CMD.`);
   }
 
   const model = MODEL ? `  --model ${MODEL}` : '';
