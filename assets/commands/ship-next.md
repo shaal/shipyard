@@ -84,8 +84,15 @@ nothing else:
 - Phases 1–3 are unchanged: complete the work, score the four-axis confidence
   gate **honestly** (do not inflate to force a ship), and update docs.
 - **Phase 4 (commit) becomes commit-on-the-task-branch:**
-  - Gate **PASS** (total ≥95 **and** no axis <15) → commit immediately to the
-    task branch. One task; stage **specific files** (never `-A`/`.`); concise
+  - Gate **PASS** (total ≥95 **and** no axis <15) → **mark the task done, then
+    commit** to the task branch. Marking done is part of the shipped change — it's
+    what lets the loop advance instead of re-picking this same task next iteration:
+      - **Markdown checklist:** flip this task's `- [ ]` to `- [x]` in the task
+        file (tick any sub-items you actually finished), and stage that file with
+        the rest of the work.
+      - **Beads:** `bd close <id> --reason "<one-line outcome>"`, and stage any
+        exported `.beads/*.jsonl` it writes.
+    Then commit — one task; stage **specific files** (never `-A`/`.`); concise
     Conventional-Commits message focused on the *why*; **no AI-authorship
     trailers**. Then proceed to step 7 (ship the PR).
   - Gate **FAIL** → do **NOT** commit. Go to step 8 (fail path).
