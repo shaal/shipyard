@@ -46,12 +46,21 @@ force or merge to paper over it.
 
 ## 3. Find the next task
 
+**If a task file was passed as an argument** (`$ARGUMENTS` is non-empty — the
+`shipyard --tasks <file>` runner appends it here), that file is the
+**authoritative** task source. Read it, take the **first unchecked `- [ ]`** task
+in document order (honoring any `depends:`/ordering notes), and do **not**
+auto-discover or consult beads. If it has no unchecked boxes → STOP, say
+"task file complete".
+
+**Otherwise** (no argument), discover the source:
+
 - **Beads project** (`bd ready` succeeds): run `bd ready --json` and take the
   highest-priority unblocked item. If empty → STOP, say "backlog empty".
-- **Otherwise** (roadmap/checklist project): find the project's task checklist —
-  a tracked markdown file with `- [ ]` task checkboxes (e.g. `EDGENET.md`,
-  `ROADMAP.md`, `TASKS.md`, or one the project's `CLAUDE.md`/`AGENTS.md` points
-  to). Take the **first unchecked `- [ ]`** task in document order. Honor any
+- **Roadmap/checklist project**: find the project's task checklist — a tracked
+  markdown file with `- [ ]` task checkboxes (e.g. `EDGENET.md`, `ROADMAP.md`,
+  `TASKS.md`, or one the project's `CLAUDE.md`/`AGENTS.md` points to). Take the
+  **first unchecked `- [ ]`** task in document order. Honor any
   `depends:`/ordering notes — never skip ahead to a task with unmet
   dependencies. If every task is checked → STOP, say "roadmap complete".
 
