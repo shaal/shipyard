@@ -46,10 +46,23 @@ Run `… init` **once either way**: it copies the `/ship` skill into `~/.claude/
 In any git repo that has a task list — a markdown checklist with `- [ ]` items (e.g. `ROADMAP.md`, `TASKS.md`) **or** a [beads](https://github.com/steveyegge/beads) backlog:
 
 ```bash
-shipyard 5          # ship up to 5 tasks, each behind the gate, one commit each
+shipyard 5          # ship up to 5 tasks, each behind the gate, one PR each
 shipyard            # ship until the backlog is empty or progress stalls
 shipyard --dry-run  # show the plan + exact command, run nothing
 ```
+
+**Point it at a specific task file** with `--tasks` (handy when a repo has several
+checklists, or the file lives somewhere shipyard wouldn't auto-find):
+
+```bash
+shipyard --tasks ROADMAP.md        # draw tasks only from ROADMAP.md
+shipyard 5 --tasks docs/PLAN.md    # ...capped at 5 tasks
+SHIPYARD_TASK_FILE=ROADMAP.md shipyard   # env form (the flag wins if both set)
+```
+
+An explicit task file is **authoritative**: it overrides beads detection and
+auto-discovery, and the loop stops on its own once the file has no unchecked
+`- [ ]` boxes left (no need to pass an iteration cap).
 
 > Using npx instead of a global install? Prefix each command: `npx @shaal/shipyard 5`.
 
@@ -73,6 +86,7 @@ All optional; sensible defaults:
 | Env var | Default | Meaning |
 |---|---|---|
 | `SHIPYARD_CMD` | `/ship-next` | Slash command run each iteration. A project can ship its own `.claude/commands/ship-next.md` to override. |
+| `SHIPYARD_TASK_FILE` | — | Markdown `- [ ]` checklist to draw tasks from (same as `--tasks`; the flag wins if both set). Authoritative — overrides beads/auto-discovery, and the loop stops when the file has no unchecked boxes. |
 | `SHIPYARD_MODEL` | `claude-opus-4-8` | `--model` for claude. `claude-sonnet-4-6` for speed. |
 | `SHIPYARD_MCP` | `off` | `off` drops all MCP servers (faster cold start; none are needed to ship code). `on` keeps them. |
 | `SHIPYARD_PROGRESS_REF` | `HEAD` | Git ref whose advance = "a task shipped". Use `origin/<branch>` for a push flow. |

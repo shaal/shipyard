@@ -54,6 +54,10 @@ Usage:
   shipyard init [--force]   Install the /ship skill + /ship-next command into ~/.claude
   shipyard                  Loop until the backlog is empty or progress stalls
   shipyard 3                Run at most 3 iterations, then stop
+  shipyard --tasks FILE     Draw tasks from FILE (a markdown '- [ ]' checklist),
+                            overriding beads/auto-discovery. Stops when FILE has
+                            no unchecked boxes left.
+  shipyard 3 --tasks ROADMAP.md
   shipyard --dry-run        Print the plan + the exact claude command, don't run
   shipyard 3 --dry-run
   shipyard --help | --version
@@ -69,6 +73,9 @@ Env vars (all optional):
                                      Default works for the PR flow: each task ends
                                      back on the target branch, fast-forwarded to
                                      the merge, so local HEAD advances.
+  SHIPYARD_TASK_FILE=                markdown '- [ ]' checklist to draw tasks from
+                                     (same as --tasks; the flag wins if both set).
+                                     Overrides beads/auto-discovery.
   SHIPYARD_READY_CMD=                command that SUCCEEDS while work remains.
                                      Auto: 'bd ready' in a beads workspace, else
                                      stall-detection only.
@@ -113,13 +120,47 @@ function hasProjectBeads() {
   const bases = [process.cwd(), cap('git', ['rev-parse', '--show-toplevel'])].filter(Boolean);
   return bases.some((b) => existsSync(join(b, '.beads')));
 }
-const BEADS_MODE = !READY_CMD && commandExists('bd') && hasProjectBeads() && cap('bd', ['ready']) !== null;
+// ---- CLI args (parsed here because the backlog oracle below depends on --tasks)
+const argv = process.argv.slice(2);
+if (argv.includes('-h') || argv.includes('--help')) { usage(); process.exit(0); }
+if (argv.includes('-v') || argv.includes('--version')) { log(PKG.version); process.exit(0); }
+if (argv[0] === 'init') { init(argv.includes('--force')); process.exit(0); }
+
+let maxIter = 0, dryRun = false;
+let TASK_FILE = process.env.SHIPYARD_TASK_FILE || '';
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--dry-run') dryRun = true;
+  else if (a === '--tasks' || a === '-t') {
+    TASK_FILE = argv[++i] || '';
+    if (!TASK_FILE) { err('✗ --tasks needs a file path, e.g. --tasks ROADMAP.md'); process.exit(2); }
+  } else if (a.startsWith('--tasks=')) {
+    TASK_FILE = a.slice('--tasks='.length);
+  } else if (/^\d+$/.test(a)) {
+    maxIter = parseInt(a, 10);
+  } else { err(`✗ unknown argument: ${a}`); usage(); process.exit(2); }
+}
+if (TASK_FILE && !existsSync(TASK_FILE)) {
+  err(`✗ task file not found: ${TASK_FILE}  (path is relative to ${process.cwd()})`);
+  process.exit(1);
+}
+// An explicit --tasks file is the authoritative task source — it overrides beads.
+const RUN_CMD = TASK_FILE ? `${CMD} ${TASK_FILE}` : CMD;
+
+const BEADS_MODE = !TASK_FILE && !READY_CMD && commandExists('bd') && hasProjectBeads() && cap('bd', ['ready']) !== null;
+// A markdown task file still has work while it holds an unchecked "- [ ]" box.
+function fileHasOpenTask() {
+  try { return /^\s*[-*]\s+\[ \]/m.test(readFileSync(TASK_FILE, 'utf8')); }
+  catch { return false; }
+}
 function workRemains() {
+  if (TASK_FILE) return fileHasOpenTask();
   if (READY_CMD) return spawnSync(READY_CMD, { shell: true, stdio: 'ignore' }).status === 0;
   if (BEADS_MODE) return bdHasReady();
   return true; // no oracle → stall-detection is the stopper
 }
-const ORACLE = READY_CMD ? `custom: ${READY_CMD}`
+const ORACLE = TASK_FILE ? `file: ${TASK_FILE} (unchecked "- [ ]")`
+  : READY_CMD ? `custom: ${READY_CMD}`
   : BEADS_MODE ? 'beads (bd ready)'
   : `none — stop on ${ZERO_STREAK_LIMIT} no-progress iters / max-iter`;
 
@@ -132,7 +173,7 @@ function readRef() {
 
 // ------------------------------------------------------------- claude command
 function claudeArgs() {
-  const a = ['-p', CMD, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
+  const a = ['-p', RUN_CMD, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
   if (MODEL) a.push('--model', MODEL);
   if (MCP_OFF) a.push('--strict-mcp-config');
   if (EXTRA_ARGS) a.push(...EXTRA_ARGS.split(/\s+/).filter(Boolean));
@@ -177,13 +218,14 @@ async function loop({ maxIter, dryRun }) {
 
   const model = MODEL ? `  --model ${MODEL}` : '';
   log('shipyard plan');
-  log(`  command:      claude -p "${CMD}"${model}${MCP_OFF ? '  --strict-mcp-config' : ''}`);
+  log(`  command:      claude -p "${RUN_CMD}"${model}${MCP_OFF ? '  --strict-mcp-config' : ''}`);
+  if (TASK_FILE) log(`  task source:  ${TASK_FILE}  (overrides beads/auto-discovery)`);
   log(`  progress ref: ${PROGRESS_REF}${NEEDS_FETCH ? '  (fetched each iter)' : ''}`);
   log(`  backlog:      ${ORACLE}`);
   log(`  max iters:    ${maxIter > 0 ? maxIter : 'unbounded'}`);
 
   // No stop condition possible → require a bound.
-  if (!BEADS_MODE && !READY_CMD && readRef() === 'no-ref' && maxIter === 0) {
+  if (!TASK_FILE && !BEADS_MODE && !READY_CMD && readRef() === 'no-ref' && maxIter === 0) {
     err(`✗ No stop condition: no backlog oracle and '${PROGRESS_REF}' doesn't resolve`);
     err(`  (not a git repo?). Pass a max iteration count, e.g. 'shipyard 5', or set`);
     err(`  SHIPYARD_READY_CMD / SHIPYARD_PROGRESS_REF.`);
@@ -212,7 +254,7 @@ async function loop({ maxIter, dryRun }) {
   const summary = () => {
     log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     log('Session summary');
-    log(`  Command:     claude -p "${CMD}"`);
+    log(`  Command:     claude -p "${RUN_CMD}"`);
     log(`  Iterations:  ${iter}`);
     log(`  Shipped ok:  ${shipped}`);
     if (failedIter) log(`  Failed at:   iteration ${failedIter}`);
@@ -249,16 +291,5 @@ async function loop({ maxIter, dryRun }) {
 }
 
 // --------------------------------------------------------------------- main
-const argv = process.argv.slice(2);
-if (argv.includes('-h') || argv.includes('--help')) { usage(); process.exit(0); }
-if (argv.includes('-v') || argv.includes('--version')) { log(PKG.version); process.exit(0); }
-
-if (argv[0] === 'init') { init(argv.includes('--force')); process.exit(0); }
-
-let maxIter = 0, dryRun = false;
-for (const a of argv) {
-  if (a === '--dry-run') dryRun = true;
-  else if (/^\d+$/.test(a)) maxIter = parseInt(a, 10);
-  else { err(`✗ unknown argument: ${a}`); usage(); process.exit(2); }
-}
+// CLI args were parsed above (the backlog oracle depends on them); just run.
 loop({ maxIter, dryRun }).catch((e) => { err(String(e?.stack || e)); process.exit(1); });
