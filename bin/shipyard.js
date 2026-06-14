@@ -277,9 +277,24 @@ async function loop({ maxIter, dryRun }) {
 
     if (before === after && before !== 'no-ref') {
       zeroStreak++;
+      // A no-progress iteration that left a dirty tree or parked HEAD on a ship/*
+      // branch is a STRANDED/interrupted iteration, not a drained backlog. Surface
+      // it so the stall isn't mislabeled — and so the resume path (ship-next
+      // step 0/1/4) has a visible reason to kick in next iteration.
+      const dirty = cap('git', ['status', '--short']) || '';
+      const curBranch = cap('git', ['rev-parse', '--abbrev-ref', 'HEAD']) || '';
+      const stranded = dirty.length > 0 || curBranch.startsWith('ship/');
       log(`⚠ Iteration ${iter} advanced no commit on ${PROGRESS_REF} (${zeroStreak}/${ZERO_STREAK_LIMIT})`);
+      if (stranded) {
+        const what = dirty.length > 0 ? 'an uncommitted working tree' : 'HEAD on a task branch';
+        const where = curBranch.startsWith('ship/') ? ` (on ${curBranch})` : '';
+        log(`  ↳ iteration left ${what}${where} — looks interrupted, not a drained backlog;`);
+        log(`     the next iteration should resume it (ship-next step 0/1/4 recovery).`);
+      }
       if (zeroStreak >= ZERO_STREAK_LIMIT) {
-        log(`✗ ${ZERO_STREAK_LIMIT} consecutive no-progress iters — backlog likely blocked or drained.`);
+        log(`✗ ${ZERO_STREAK_LIMIT} consecutive no-progress iters — ${stranded
+          ? 'iterations are stranding work (see ↳ above), not draining the backlog.'
+          : 'backlog likely blocked or drained.'}`);
         log('  Stopping. Override with SHIPYARD_ZERO_STREAK_LIMIT=N.');
         summary(); process.exit(0);
       }
