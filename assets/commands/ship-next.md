@@ -26,16 +26,40 @@ not optional.
 
 1. `git branch --show-current` → call this **TARGET**. If it's empty (detached
    HEAD), STOP and report — there's no branch to merge into.
+   - **If the current branch is itself a `ship/*` task branch**, you are not on a
+     real target — this is residue from a previous iteration that was interrupted
+     before it returned to the target (see step 1's recovery). Do **not** treat a
+     `ship/*` branch as TARGET. Recover first: the integration branch it was cut
+     from is the repo's default branch — `git symbolic-ref --short refs/remotes/origin/HEAD`
+     (e.g. `origin/main` → `main`). Note the `ship/*` branch name as **RESUME**
+     (you may continue it in step 4), then `git switch <default>` and use that as
+     TARGET. If the default can't be resolved, STOP and report.
 2. Confirm the remote and GitHub CLI are usable: `git remote get-url origin` must
    succeed, and `gh auth status` must show you authenticated. If either fails,
    STOP and report exactly what's missing — do **not** fall back to a local-only
    commit, because the loop expects the target branch to advance via a merge.
 
-## 1. Refuse to start on a dirty tree
+## 1. Dirty tree: recover your own residue, refuse stray work
 
-Run `git status --short`. If there are **uncommitted tracked changes**, STOP and
-report them — do **not** stash or commit them blindly. (Untracked build output /
-ignored files are fine.)
+Run `git status --short`. Untracked build output / ignored files are fine. If
+there are **uncommitted tracked changes**, decide what they are before acting —
+**never stash or commit unrelated work blindly**, but in an unattended loop you
+must also not deadlock on residue you created yourself:
+
+- **Residue from an interrupted attempt at a task** — you reached step 0 on a
+  `ship/*` branch (you noted it as RESUME), *or* the changes sit on a `ship/<slug>`
+  branch and are confined to that task's files. This is your own work-in-progress
+  from an iteration that died before it could commit (e.g. it ended its turn while
+  a background task was still running). **Recover, don't stop:** treat that branch
+  as the resume target in step 4 — you will commit these changes there and finish
+  shipping the task, rather than starting over. Do **not** discard them.
+- **Unrelated stray work** — uncommitted changes on TARGET itself, or that don't
+  correspond to the task you're about to pick (genuine human work-in-progress).
+  Keep the guardrail: **STOP and report** — do not stash or commit them.
+
+When in doubt (you can't attribute the changes to the current task), treat them as
+stray and STOP. The recovery path is only for residue you can positively tie to a
+`ship/*` task branch.
 
 ## 2. Sync the target branch
 
@@ -66,15 +90,40 @@ auto-discover or consult beads. If it has no unchecked boxes → STOP, say
 
 State which task you picked in one line before starting.
 
-## 4. Cut a task branch off the target
+## 4. Cut a task branch off the target — or resume an existing one
 
-Create and switch to a fresh branch for this task, based on the now-current
-TARGET: `git switch -c ship/<slug>` where `<slug>` is the beads id (e.g.
-`ship/qh-42`) or a short kebab-case slug of the task title. If that branch name
-already exists, append a short disambiguator. All of the work and the commit for
-this task happen on this branch — never directly on TARGET.
+The slug is the beads id (e.g. `ship/qh-42`) or a short kebab-case slug of the
+task title. Decide between a fresh branch and resuming an interrupted one:
+
+- **`ship/<slug>` already exists** — check whether it's an in-progress attempt at
+  *this same task*: it is the RESUME branch noted in step 0/1, **or** it is ahead
+  of TARGET (`git rev-list --count <TARGET>..ship/<slug>` > 0), **or** it carries
+  uncommitted changes for this task. If so, **resume it**: `git switch ship/<slug>`,
+  and if there are uncommitted task changes, commit them here as the task's WIP
+  (you'll continue from there in step 5). Its existing commits are this task's
+  work — do **not** start over. Only if the existing branch is **unrelated** (not
+  ahead of TARGET, not this task) append a short disambiguator and start fresh.
+- **`ship/<slug>` does not exist** — create it off the now-current TARGET:
+  `git switch -c ship/<slug>`.
+
+All of the work and the commit for this task happen on this branch — never
+directly on TARGET. When resuming, re-verify from scratch in step 5/6: prior
+partial work is **untrusted** until your own adversarial pass confirms it.
 
 ## 5. Run /ship on that task — UNATTENDED
+
+**You are headless — there is no "later".** When your turn ends, this process
+exits and **any background task you started is killed on the spot**. So you must
+drive this task to a *terminal state within this one turn*: either fully shipped
+(step 7, back on TARGET with a clean tree) or failed (step 8). Two rules follow:
+
+- **Never end your turn with uncommitted work or a running background task.** If
+  you launch background work (a deploy, a calibration run, a long test), **block
+  on it to completion** — poll it synchronously and wait — before you score the
+  gate or commit. Do **not** "park" on it expecting to be resumed; you won't be,
+  and you'll strand a dirty tree that jams the next iteration.
+- If a step genuinely can't finish within the turn, take the **fail path**
+  (step 8) cleanly rather than yielding mid-flight.
 
 Invoke the `/ship` skill for the chosen task, with **two overrides**:
 /ship's Phase 4 normally **holds for a human "go ahead"** and **does not push**.
