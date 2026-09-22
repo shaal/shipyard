@@ -79,8 +79,19 @@ auto-discover or consult beads. If it has no unchecked boxes → STOP, say
 
 **Otherwise** (no argument), discover the source:
 
-- **Beads project** (`bd ready` succeeds): run `bd ready --json` and take the
-  highest-priority unblocked item. If empty → STOP, say "backlog empty".
+- **Beads project** (a `.beads/` directory in the current directory or the repo
+  root): pick the CLI from `.beads/metadata.json` **before running any beads
+  command** — `"backend": "dolt"` (or `"database": "dolt"`) → `bd` (beads); a
+  `"database"` ending in `.db`, such as `"beads.db"` → `br` (beads_rust; this also
+  covers bd workspaces from before its Dolt backend). Call it **BEADS**. The two
+  can't read each other's workspaces, and the wrong one can report an empty
+  backlog and leave stray files, so never pick by trial and error. Run
+  `BEADS ready --json` and take the highest-priority unblocked item. If empty →
+  STOP, say "backlog empty". If `metadata.json` is missing or names neither
+  backend, treat the project as having no beads backlog and use the checklist
+  below. If BEADS isn't installed, or `br` reports `SCHEMA_MISMATCH` → STOP and
+  report it (for the schema case: "run `br doctor migrate-schema plan`"). Never
+  migrate the workspace yourself.
 - **Roadmap/checklist project**: find the project's task checklist — a tracked
   markdown file with `- [ ]` task checkboxes (e.g. `EDGENET.md`, `ROADMAP.md`,
   `TASKS.md`, or one the project's `CLAUDE.md`/`AGENTS.md` points to). Take the
@@ -139,8 +150,11 @@ nothing else:
       - **Markdown checklist:** flip this task's `- [ ]` to `- [x]` in the task
         file (tick any sub-items you actually finished), and stage that file with
         the rest of the work.
-      - **Beads:** `bd close <id> --reason "<one-line outcome>"`, and stage any
-        exported `.beads/*.jsonl` it writes.
+      - **Beads:** `BEADS close <id> --reason "<one-line outcome>"`. With `br`,
+        stage `.beads/issues.jsonl` (if `git status` doesn't show it modified,
+        run `br sync --flush-only` first). With `bd`, there is nothing to stage:
+        it records the close in its own Dolt database. **Never run `bd sync`** —
+        it pushes to remotes.
     Then commit — one task; stage **specific files** (never `-A`/`.`); concise
     Conventional-Commits message focused on the *why*; **no AI-authorship
     trailers**. Then proceed to step 7 (ship the PR).

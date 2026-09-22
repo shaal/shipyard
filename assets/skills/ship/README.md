@@ -6,7 +6,7 @@ A [Claude Code](https://claude.com/claude-code) skill that completes and ships a
 
 When invoked (`/ship`, or "ship the next task"), it runs four phases in strict order:
 
-1. **Complete the next task** — from a task document or a [beads](https://github.com/steveyegge/beads) (`br` / `beads_rust`) backlog.
+1. **Complete the next task** — from a task document or a beads backlog — [`bd`](https://github.com/steveyegge/beads) or [`br`](https://github.com/Dicklesworthstone/beads_rust), picked from `.beads/metadata.json`.
 2. **Confidence check (4-axis rubric)** — score the change on four 0–25 axes: **Requirements Fit**, **Functional Robustness**, **Verification Evidence**, **System Safety & Integration**. Each axis demands concrete, *executed* evidence — not "I read the code." Total must be **≥95 with no axis below 15**, no rounding. Iterate until it passes. Optionally escalate to an external Grok second opinion when confidence stalls on genuine uncertainty.
 3. **Update documentation** — only what actually changed or was learned.
 4. **Commit** — via the project's `/commit` skill if present, else a plain `git` commit. Does not push unless asked.

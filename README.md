@@ -43,7 +43,7 @@ Run `… init` **once either way**: it copies the `/ship` skill into `~/.claude/
 
 ## Quick start
 
-In any git repo that has a task list — a markdown checklist with `- [ ]` items (e.g. `ROADMAP.md`, `TASKS.md`) **or** a [beads](https://github.com/steveyegge/beads) backlog:
+In any git repo that has a task list — a markdown checklist with `- [ ]` items (e.g. `ROADMAP.md`, `TASKS.md`) **or** a beads backlog ([`bd`](https://github.com/steveyegge/beads) or [`br`](https://github.com/Dicklesworthstone/beads_rust), picked from `.beads/metadata.json`):
 
 ```bash
 shipyard 5          # ship up to 5 tasks, each behind the gate, one PR each
@@ -90,7 +90,7 @@ All optional; sensible defaults:
 | `SHIPYARD_MODEL` | `claude-opus-4-8` | `--model` for claude. `claude-sonnet-4-6` for speed. |
 | `SHIPYARD_MCP` | `off` | `off` drops all MCP servers (faster cold start; none are needed to ship code). `on` keeps them. |
 | `SHIPYARD_PROGRESS_REF` | `HEAD` | Git ref whose advance = "a task shipped". Use `origin/<branch>` for a push flow. |
-| `SHIPYARD_READY_CMD` | auto | A command that succeeds while work remains. Auto-detects `bd ready` in a beads workspace; otherwise relies on stall-detection. |
+| `SHIPYARD_READY_CMD` | auto | A command that succeeds while work remains. Auto-detects `bd ready` or `br ready` in a beads workspace, picking the CLI from `.beads/metadata.json` (Dolt → `bd`, SQLite → `br`). If that CLI is missing or its `ready` fails (for example, a `br` schema that needs `br doctor migrate-schema plan`), shipyard exits instead of looping; use `--tasks FILE` to bypass beads. A `.beads/` without a recognised `metadata.json` is ignored with a warning. Otherwise relies on stall-detection. |
 | `SHIPYARD_ZERO_STREAK_LIMIT` | `2` | Stop after N consecutive iterations that ship nothing. |
 | `SHIPYARD_CLAUDE_ARGS` | — | Extra args appended to the `claude` invocation. |
 
