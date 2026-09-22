@@ -116,6 +116,17 @@ Under the `shipyard` loop, `/ship-next` wraps those phases in a branch-per-task 
 - The `/ship-next` command: [`assets/commands/ship-next.md`](assets/commands/ship-next.md).
 - The `shipyard` CLI: [`bin/shipyard.js`](bin/shipyard.js).
 
+## Publishing to shaal/skills
+
+The `/ship` skill is also published in [shaal/skills](https://github.com/shaal/skills), as the `ship` skill and as a bundled copy inside `ship-next`. This repo is the source of truth. After you change `assets/skills/ship/`, copy it there:
+
+```bash
+npm run sync-skills -- ../skills          # write the copies
+npm run sync-skills:check -- ../skills    # exit 1 if any copy is out of date
+```
+
+The path defaults to `$SKILLS_REPO`, else `../skills`. Commit and open a PR in the skills repo after a sync.
+
 ## License
 
 [MIT](LICENSE) © Ofer Shaal

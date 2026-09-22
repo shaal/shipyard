@@ -19,7 +19,9 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node bin/shipyard.js --dry-run 1"
+    "test": "node bin/shipyard.js --dry-run 1",
+    "sync-skills": "node scripts/sync-skills.js",
+    "sync-skills:check": "node scripts/sync-skills.js --check"
   },
   "keywords": [
     "claude",
