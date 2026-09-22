@@ -26,7 +26,7 @@ End-to-end workflow for completing a task with a quality gate before commit. The
 Identify the task source. Ask the user if ambiguous:
 
 - **Task document** — a markdown/spec file the user has referenced or has open
-- **Beads backlog** — if the project uses beads (`br` / `beads_rust`), run `br ready` to see ready tasks, then `br show <id>` for details
+- **Beads backlog** — if the project has a `.beads/` directory (current directory or repo root), pick the CLI from `.beads/metadata.json` **before running any beads command**: `"backend": "dolt"` (or `"database": "dolt"`) → `bd` (beads); a `"database"` ending in `.db`, such as `"beads.db"` → `br` (beads_rust; also covers bd workspaces from before its Dolt backend). If `metadata.json` is missing or names neither, treat it as no beads backlog. The two can't read each other's workspaces, and the wrong one can report an empty backlog and leave stray files. Run `<cli> ready` to see ready tasks, then `<cli> show <id>` for details. If `br` reports `SCHEMA_MISMATCH`, tell the user to run `br doctor migrate-schema plan` — never migrate the workspace yourself.
 
 If neither is obvious, ask: *"Which task should I work on — something from a doc, or the next ready item in beads?"*
 
@@ -179,7 +179,7 @@ Review what was learned or changed this session and update anything that's now s
 - **README.md** — if user-facing behavior, setup, or commands changed
 - **CLAUDE.md / AGENTS.md** — if conventions, gotchas, or workflows were clarified. Edit the *narrowest* file that covers the change (per-service / per-package over the repo root); only touch the root file if the lesson is genuinely cross-cutting policy. Nested CLAUDE.md/AGENTS.md auto-load when work touches their subtree, so root edits about service-specific details just rot.
 - **Inline comments** — only where logic is non-obvious (do not add comments to self-evident code)
-- **Beads task notes** — if using beads, `br update <id>` to reflect outcome/decisions
+- **Beads task notes** — if using beads, `<cli> update <id>` (the CLI picked in Phase 1) to reflect outcome/decisions
 - **Spec or design doc** — if the task referenced one and the implementation diverged
 
 **Rule:** only update docs where something genuinely changed or a non-obvious lesson was learned. Do not create new docs unless clearly warranted. No speculative documentation.

@@ -77,8 +77,9 @@ Env vars (all optional):
                                      (same as --tasks; the flag wins if both set).
                                      Overrides beads/auto-discovery.
   SHIPYARD_READY_CMD=                command that SUCCEEDS while work remains.
-                                     Auto: 'bd ready' in a beads workspace, else
-                                     stall-detection only.
+                                     Auto: 'bd ready' or 'br ready' in a beads
+                                     workspace (picked from .beads/metadata.json),
+                                     else stall-detection only.
   SHIPYARD_ZERO_STREAK_LIMIT=2       stop after N consecutive no-progress iters.
   SHIPYARD_CLAUDE_ARGS=              extra args appended to the claude invocation.
 
@@ -107,18 +108,32 @@ function init(force) {
 }
 
 // ----------------------------------------------------------- backlog "oracle"
-function bdHasReady() {
-  const j = cap('bd', ['ready', '--json']);
+function hasReady(cli) {
+  const j = cap(cli, ['ready', '--json']);
   if (j) { try { const a = JSON.parse(j); if (Array.isArray(a) && a.length) return true; } catch { /* fall through */ } }
-  const t = cap('bd', ['ready']);
+  const t = cap(cli, ['ready']);
   return !!(t && /^[a-z]+-[a-z0-9]+/m.test(t));
 }
 // Only treat this as a beads workspace if there's a project-local `.beads`
 // (cwd or git root) — `bd ready` alone can resolve to a HOME-level ~/.beads db
 // outside any git repo and falsely report the backlog empty.
-function hasProjectBeads() {
+function projectBeadsDir() {
   const bases = [process.cwd(), cap('git', ['rev-parse', '--show-toplevel'])].filter(Boolean);
-  return bases.some((b) => existsSync(join(b, '.beads')));
+  return bases.map((b) => join(b, '.beads')).find((d) => existsSync(d)) || null;
+}
+// Which beads CLI owns the workspace, read from .beads/metadata.json before
+// running either: `bd` (beads) keeps a Dolt db, `br` (beads_rust) keeps SQLite +
+// issues.jsonl, and they can't read each other's. Trial and error is unsafe —
+// br 0.6 run in a bd workspace reports an empty backlog and litters .beads/.
+// SQLite also covers bd workspaces from before its Dolt backend; br reads those.
+function beadsCli(dir) {
+  let meta;
+  try { meta = JSON.parse(readFileSync(join(dir, 'metadata.json'), 'utf8').replace(/^\uFEFF/, '')); }
+  catch { return null; }
+  if (!meta || typeof meta !== 'object') return null;
+  if (meta.backend === 'dolt' || meta.database === 'dolt') return 'bd';
+  if (typeof meta.database === 'string' && meta.database.endsWith('.db')) return 'br';
+  return null;
 }
 // ---- CLI args (parsed here because the backlog oracle below depends on --tasks)
 const argv = process.argv.slice(2);
@@ -147,7 +162,20 @@ if (TASK_FILE && !existsSync(TASK_FILE)) {
 // An explicit --tasks file is the authoritative task source — it overrides beads.
 const RUN_CMD = TASK_FILE ? `${CMD} ${TASK_FILE}` : CMD;
 
-const BEADS_MODE = !TASK_FILE && !READY_CMD && commandExists('bd') && hasProjectBeads() && cap('bd', ['ready']) !== null;
+const BEADS_DIR = !TASK_FILE && !READY_CMD ? projectBeadsDir() : null;
+const BEADS_CLI = BEADS_DIR ? beadsCli(BEADS_DIR) : null;
+const BEADS_KIND = BEADS_CLI === 'bd' ? 'Dolt workspace (bd)' : 'SQLite workspace (br, or bd before Dolt)';
+// A .beads dir whose metadata is missing or unrecognised is not treated as a
+// backlog (a stray dir mustn't block a checklist project): warn, fall back.
+const BEADS_SKIPPED = BEADS_DIR && !BEADS_CLI
+  ? `${BEADS_DIR}/metadata.json is missing, unreadable, or names no known backend` : '';
+// A recognised workspace that can't be read is fatal: /ship-next would stop on
+// it every iteration. Empty string when fine.
+const BEADS_PROBLEM = !BEADS_CLI ? ''
+  : !commandExists(BEADS_CLI) ? `${BEADS_KIND}, but '${BEADS_CLI}' is not on PATH`
+  : cap(BEADS_CLI, ['ready', '--json']) === null ? `'${BEADS_CLI} ready --json' fails in this ${BEADS_KIND}${BEADS_CLI === 'br' ? " (schema too old? run 'br doctor migrate-schema plan')" : ''}`
+  : '';
+const BEADS_MODE = !!BEADS_CLI && !BEADS_PROBLEM;
 // A markdown task file still has work while it holds an unchecked "- [ ]" box.
 function fileHasOpenTask() {
   try { return /^\s*[-*]\s+\[ \]/m.test(readFileSync(TASK_FILE, 'utf8')); }
@@ -156,12 +184,12 @@ function fileHasOpenTask() {
 function workRemains() {
   if (TASK_FILE) return fileHasOpenTask();
   if (READY_CMD) return spawnSync(READY_CMD, { shell: true, stdio: 'ignore' }).status === 0;
-  if (BEADS_MODE) return bdHasReady();
+  if (BEADS_MODE) return hasReady(BEADS_CLI);
   return true; // no oracle → stall-detection is the stopper
 }
 const ORACLE = TASK_FILE ? `file: ${TASK_FILE} (unchecked "- [ ]")`
   : READY_CMD ? `custom: ${READY_CMD}`
-  : BEADS_MODE ? 'beads (bd ready)'
+  : BEADS_MODE ? `beads (${BEADS_CLI} ready)`
   : `none — stop on ${ZERO_STREAK_LIMIT} no-progress iters / max-iter`;
 
 // ------------------------------------------------------------- progress ref
@@ -222,6 +250,15 @@ async function loop({ maxIter, dryRun }) {
   if (TASK_FILE) log(`  task source:  ${TASK_FILE}  (overrides beads/auto-discovery)`);
   log(`  progress ref: ${PROGRESS_REF}${NEEDS_FETCH ? '  (fetched each iter)' : ''}`);
   log(`  backlog:      ${ORACLE}`);
+  // A beads project whose backlog can't be read would only burn iterations:
+  // /ship-next stops on it too. Fail fast with the fix instead.
+  if (BEADS_SKIPPED) err(`⚠ beads ignored: ${BEADS_SKIPPED}.`);
+  if (BEADS_PROBLEM) {
+    err(`✗ beads workspace unusable: ${BEADS_PROBLEM}.`);
+    err(`  Fix it, or point shipyard at a checklist with --tasks FILE.`);
+    if (dryRun) err('(dry-run — a real run would exit 1 here)');
+    process.exit(1);
+  }
   log(`  max iters:    ${maxIter > 0 ? maxIter : 'unbounded'}`);
 
   // No stop condition possible → require a bound.
