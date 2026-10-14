@@ -193,11 +193,16 @@ in order; if any step errors, STOP and report — do not leave a half-shipped st
 silently:
 
 1. **Push** the task branch: `git push -u origin HEAD`.
-2. **Open the PR with the auto-filled description**, against the captured target.
-   Let `gh` populate the title and body from the commit — do **not** pass
-   `--body` here (it's mutually exclusive with `--fill`):
+2. **Open the PR with the auto-filled description and an explicit title**,
+   against the captured target. Let `gh` populate the body from the commits,
+   but pass the title yourself: with more than one commit on the branch (a
+   resumed WIP commit, a later fix), `--fill` titles the PR with the branch name
+   (`ship/<slug>`). `--title` overrides only the title; `--fill` still writes the
+   body. Use the subject of the task commit from Phase 4, written out — the newest
+   commit is not always that one. Do **not** pass `--body` here; step 3 appends
+   the confidence section to the auto-filled body:
    ```
-   gh pr create --base "$TARGET" --head ship/<slug> --fill
+   gh pr create --base "$TARGET" --head ship/<slug> --title "<task commit subject>" --fill
    ```
    Capture the PR number/URL it prints.
 3. **Append the confidence scores to that description.** Read the body `gh` just
