@@ -126,13 +126,19 @@ partial work is **untrusted** until your own adversarial pass confirms it.
 **You are headless — there is no "later".** When your turn ends, this process
 exits and **any background task you started is killed on the spot**. So you must
 drive this task to a *terminal state within this one turn*: either fully shipped
-(step 7, back on TARGET with a clean tree) or failed (step 8). Three rules follow:
+(step 7, back on TARGET with a clean tree) or failed (step 8). Four rules follow:
 
 - **Never end your turn with uncommitted work or a running background task.** If
   you launch background work (a deploy, a calibration run, a long test), **block
   on it to completion** — poll it synchronously and wait — before you score the
   gate or commit. Do **not** "park" on it expecting to be resumed; you won't be,
   and you'll strand a dirty tree that jams the next iteration.
+- **Subagents are background tasks too — run them in the foreground.** The Agent
+  tool starts subagents in the background by default, and they die with this
+  process. Pass `run_in_background: false` on **every** Agent call, reviewers
+  included. To run 2–3 reviewers in parallel, put all their Agent calls in **one
+  message**. Never end a turn on a status like "the reviewers are still running"
+  — that is exactly how an iteration strands its work.
 - **Every shell command must finish inside the tool's foreground limit.** Claude
   Code's Bash tool kills a command after **2 minutes by default**; pass its
   `timeout` parameter (at most 600000 ms = 10 minutes) for anything longer. Size
@@ -179,12 +185,13 @@ Spend capability to raise the quality ceiling — don't just run the happy-path 
   visual smoke test when the task changes what a user sees** (pages, rendering,
   new UI). This trims waste, not rigor.
 - **Before the gate may PASS, run an adversarial review.** Spawn independent
-  reviewer subagent(s) (the Agent tool) whose job is to **refute** the work, not
-  bless it: hunt correctness bugs, missed edge cases, untested/hostile-input
-  paths, ADR/spec violations, and regressions. Scale with risk — **1** reviewer
-  for a small change, **2–3 with distinct lenses** (correctness · robustness/edges
-  · spec-&-ADR-fit) for a hard or load-bearing task. Each returns concrete
-  findings or a precise "tried X/Y/Z, found nothing."
+  reviewer subagent(s) (the Agent tool, in the foreground with
+  `run_in_background: false` — refer to step 5) whose job is to **refute** the
+  work, not bless it: hunt correctness bugs, missed edge cases,
+  untested/hostile-input paths, ADR/spec violations, and regressions. Scale with
+  risk — **1** reviewer for a small change, **2–3 with distinct lenses**
+  (correctness · robustness/edges · spec-&-ADR-fit) for a hard or load-bearing
+  task. Each returns concrete findings or a precise "tried X/Y/Z, found nothing."
 - **Pick the reviewer's model by lens — do not rely on inheritance.** Subagents
   do **not** inherit the orchestrator's model when `CLAUDE_CODE_SUBAGENT_MODEL` is
   set (often to a small model such as `haiku`), so an Agent call with no `model`
