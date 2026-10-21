@@ -5,7 +5,8 @@
 // Part of @shaal/shipyard. MIT © Ofer Shaal.
 
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { createWriteStream, mkdirSync, cpSync, existsSync, readFileSync } from 'node:fs';
+import { createWriteStream, mkdirSync, existsSync, readFileSync, writeFileSync, copyFileSync, readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { homedir, tmpdir, platform } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +19,7 @@ const IS_WIN = platform() === 'win32';
 
 // ---------------------------------------------------------------- config (env)
 const CMD = process.env.SHIPYARD_CMD || '/ship-next';
-const MODEL = process.env.SHIPYARD_MODEL ?? 'claude-opus-4-8';
+const MODEL = process.env.SHIPYARD_MODEL ?? 'claude-opus-5-5';
 const PROGRESS_REF = process.env.SHIPYARD_PROGRESS_REF || 'HEAD';
 const ZERO_STREAK_LIMIT = parseInt(process.env.SHIPYARD_ZERO_STREAK_LIMIT || '2', 10);
 const EXTRA_ARGS = process.env.SHIPYARD_CLAUDE_ARGS || '';
@@ -51,7 +52,9 @@ function usage() {
 one quality-gated task at a time. https://github.com/shaal/shipyard
 
 Usage:
-  shipyard init [--force]   Install the /ship skill + /ship-next command into ~/.claude
+  shipyard init [--force]   Install the /ship skill + /ship-next command into ~/.claude.
+                            Keeps files you edited by hand; --force overwrites
+                            them after saving a .bak-<timestamp> copy.
   shipyard                  Loop until the backlog is empty or progress stalls
   shipyard 3                Run at most 3 iterations, then stop
   shipyard --tasks FILE     Draw tasks from FILE (a markdown '- [ ]' checklist),
@@ -65,8 +68,8 @@ Usage:
 Env vars (all optional):
   SHIPYARD_CMD=/ship-next            slash command run each iteration. Must exist
                                      in the project or globally (run 'shipyard init').
-  SHIPYARD_MODEL=claude-opus-4-8     --model for claude. Default opus (max quality);
-                                     set claude-sonnet-4-6 for a faster/cheaper run.
+  SHIPYARD_MODEL=claude-opus-5-5     --model for claude. Default opus (max quality);
+                                     set claude-sonnet-5-5 for a faster/cheaper run.
   SHIPYARD_MCP=off                   off (default) drops all MCP servers (faster);
                                      'on' keeps them.
   SHIPYARD_PROGRESS_REF=HEAD         git ref whose advance means "a task shipped".
@@ -87,24 +90,66 @@ Per-iteration logs: <tmp>/shipyard-<timestamp>/iter-NN.jsonl`);
 }
 
 // --------------------------------------------------------------- `shipyard init`
+// Copy the /ship skill and /ship-next command into ~/.claude. A file already there
+// is shipyard's own (safe to update) if its hash is in the manifest init writes
+// (~/.claude/.shipyard-manifest.json) or matches any version shipyard ever shipped
+// (assets/known-hashes.json — covers installs that predate the manifest).
+// Anything else counts as edited by hand: kept, unless --force, which saves a
+// .bak-<timestamp> copy first. Returns false if any file was kept.
+const sha256 = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
+function filePairs(src, dst, rel) {
+  if (!statSync(src).isDirectory()) return [{ src, dst, rel }];
+  return readdirSync(src).sort().flatMap((n) => filePairs(join(src, n), join(dst, n), `${rel}/${n}`));
+}
+function knownHashes() {
+  try { return JSON.parse(readFileSync(join(PKG_ROOT, 'assets', 'known-hashes.json'), 'utf8')); }
+  catch { return {}; }
+}
 function init(force) {
-  const skillSrc = join(PKG_ROOT, 'assets', 'skills', 'ship');
-  const cmdSrc = join(PKG_ROOT, 'assets', 'commands', 'ship-next.md');
-  const skillDst = join(homedir(), '.claude', 'skills', 'ship');
-  const cmdDst = join(homedir(), '.claude', 'commands', 'ship-next.md');
+  const claudeDir = join(homedir(), '.claude');
+  const manifestPath = join(claudeDir, '.shipyard-manifest.json');
+  let manifest = {};
+  try { manifest = JSON.parse(readFileSync(manifestPath, 'utf8')); } catch { /* first install */ }
 
-  const existed = existsSync(skillDst) || existsSync(cmdDst);
-  if (existed && !force) log('Updating an existing install (use --force to silence).');
+  const pairs = [
+    ...filePairs(join(PKG_ROOT, 'assets', 'skills', 'ship'), join(claudeDir, 'skills', 'ship'), 'skills/ship'),
+    ...filePairs(join(PKG_ROOT, 'assets', 'commands', 'ship-next.md'), join(claudeDir, 'commands', 'ship-next.md'), 'commands/ship-next.md'),
+  ];
+  const known = knownHashes();
+  const stamp = nowStamp(), kept = [];
+  let written = 0;
+  for (const { src, dst, rel } of pairs) {
+    const want = sha256(src);
+    if (existsSync(dst)) {
+      const have = sha256(dst);
+      if (have === want) { manifest[dst] = want; continue; }   // already current
+      const ours = manifest[dst] === have || (known[rel] || []).includes(have);
+      if (!ours) {                                              // edited by hand
+        if (!force) { kept.push(dst); continue; }
+        copyFileSync(dst, `${dst}.bak-${stamp}`);
+        log(`  saved your copy → ${dst}.bak-${stamp}`);
+      }
+    }
+    mkdirSync(dirname(dst), { recursive: true });
+    copyFileSync(src, dst);
+    manifest[dst] = want;
+    written++;
+    log(`✓ installed ${dst}`);
+  }
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 
-  mkdirSync(skillDst, { recursive: true });
-  mkdirSync(dirname(cmdDst), { recursive: true });
-  cpSync(skillSrc, skillDst, { recursive: true, force: true });
-  cpSync(cmdSrc, cmdDst, { force: true });
-
-  log(`✓ installed skill   /ship       → ${skillDst}`);
-  log(`✓ installed command /ship-next  → ${cmdDst}`);
+  if (!written && !kept.length) log('✓ /ship and /ship-next are already up to date.');
+  if (kept.length) {
+    err(`\n✗ kept ${kept.length} file(s) that match no version shipyard ever shipped — edited by hand:`);
+    for (const k of kept) err(`    ${k}`);
+    err(`  Compare them with ${join(PKG_ROOT, 'assets')}, then re-run`);
+    err(`  'shipyard init --force' to overwrite (a .bak-<timestamp> copy is saved first).`);
+    return false;
+  }
   log(`\nClaude Code picks them up on its next launch. Then, in any git repo with a`);
   log(`task list or beads backlog:  shipyard 5`);
+  return true;
 }
 
 // ----------------------------------------------------------- backlog "oracle"
@@ -139,7 +184,7 @@ function beadsCli(dir) {
 const argv = process.argv.slice(2);
 if (argv.includes('-h') || argv.includes('--help')) { usage(); process.exit(0); }
 if (argv.includes('-v') || argv.includes('--version')) { log(PKG.version); process.exit(0); }
-if (argv[0] === 'init') { init(argv.includes('--force')); process.exit(0); }
+if (argv[0] === 'init') { process.exit(init(argv.includes('--force')) ? 0 : 1); }
 
 let maxIter = 0, dryRun = false;
 let TASK_FILE = process.env.SHIPYARD_TASK_FILE || '';
