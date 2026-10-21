@@ -93,8 +93,8 @@ auto-discover or consult beads. If it has no unchecked boxes → STOP, say
   report it (for the schema case: "run `br doctor migrate-schema plan`"). Never
   migrate the workspace yourself.
 - **Roadmap/checklist project**: find the project's task checklist — a tracked
-  markdown file with `- [ ]` task checkboxes (e.g. `EDGENET.md`, `ROADMAP.md`,
-  `TASKS.md`, or one the project's `CLAUDE.md`/`AGENTS.md` points to). Take the
+  markdown file with `- [ ]` task checkboxes (e.g. `ROADMAP.md`, `TASKS.md`,
+  or one the project's `CLAUDE.md`/`AGENTS.md` points to). Take the
   **first unchecked `- [ ]`** task in document order. Honor any
   `depends:`/ordering notes — never skip ahead to a task with unmet
   dependencies. If every task is checked → STOP, say "roadmap complete".
@@ -126,13 +126,20 @@ partial work is **untrusted** until your own adversarial pass confirms it.
 **You are headless — there is no "later".** When your turn ends, this process
 exits and **any background task you started is killed on the spot**. So you must
 drive this task to a *terminal state within this one turn*: either fully shipped
-(step 7, back on TARGET with a clean tree) or failed (step 8). Two rules follow:
+(step 7, back on TARGET with a clean tree) or failed (step 8). Three rules follow:
 
 - **Never end your turn with uncommitted work or a running background task.** If
   you launch background work (a deploy, a calibration run, a long test), **block
   on it to completion** — poll it synchronously and wait — before you score the
   gate or commit. Do **not** "park" on it expecting to be resumed; you won't be,
   and you'll strand a dirty tree that jams the next iteration.
+- **Every shell command must finish inside the tool's foreground limit.** Claude
+  Code's Bash tool kills a command after **2 minutes by default**; pass its
+  `timeout` parameter (at most 600000 ms = 10 minutes) for anything longer. Size
+  long work to fit: use the project's chunked or resumable mode if it has one, or
+  split the run into commands that each save partial results, so re-running the
+  same command continues the work. Do not wrap commands in the `timeout` shell
+  utility — macOS ships without it; enforce deadlines inside the program.
 - If a step genuinely can't finish within the turn, take the **fail path**
   (step 8) cleanly rather than yielding mid-flight.
 
@@ -164,25 +171,40 @@ nothing else:
 
 Spend capability to raise the quality ceiling — don't just run the happy-path tests:
 
-- **Match the *probe* to the task for cost, not quality.** Pure-logic tasks
-  (`src/mesh/*`, schemas, stores, detectors, math) verify via `npm test` (+
-  `npm run build` if the bundle is affected) — no need to spin up a browser. Only
-  run a headless **browser smoke test when the task changes what the page
-  renders** (`sky.js`, `index.html`, `sky3d.js`, `draw.js`, `panels.js`,
-  `gpu-sats.js`, or new UI). This trims waste, not rigor.
+- **Match the *probe* to the task for cost, not quality.** Use the verification
+  commands the project names — its `CLAUDE.md`/`AGENTS.md` first, then its README
+  or package scripts. Pure-logic changes (schemas, stores, detectors, math)
+  verify via the project's unit tests, plus its build if the shipped artifact is
+  affected — no need to spin up a browser. Only run a headless **browser or
+  visual smoke test when the task changes what a user sees** (pages, rendering,
+  new UI). This trims waste, not rigor.
 - **Before the gate may PASS, run an adversarial review.** Spawn independent
-  reviewer subagent(s) (the Agent tool — they inherit the orchestrator's model,
-  opus here) whose job is to **refute** the work, not bless it: hunt correctness
-  bugs, missed edge cases, untested/hostile-input paths, ADR/spec violations, and
-  regressions. Scale with risk — **1** reviewer for a small change, **2–3 with
-  distinct lenses** (correctness · robustness/edges · spec-&-ADR-fit) for a hard
-  or load-bearing task. Each returns concrete findings or a precise "tried X/Y/Z,
-  found nothing."
+  reviewer subagent(s) (the Agent tool) whose job is to **refute** the work, not
+  bless it: hunt correctness bugs, missed edge cases, untested/hostile-input
+  paths, ADR/spec violations, and regressions. Scale with risk — **1** reviewer
+  for a small change, **2–3 with distinct lenses** (correctness · robustness/edges
+  · spec-&-ADR-fit) for a hard or load-bearing task. Each returns concrete
+  findings or a precise "tried X/Y/Z, found nothing."
+- **Pick the reviewer's model by lens — do not rely on inheritance.** Subagents
+  do **not** inherit the orchestrator's model when `CLAUDE_CODE_SUBAGENT_MODEL` is
+  set (often to a small model such as `haiku`), so an Agent call with no `model`
+  runs on that default.
+  - **Correctness and spec-fit lens → pass `model: "opus"` explicitly.** This
+    lens judges whether the design, the statistic or the reading of the spec is
+    right, which needs the strongest reviewer.
+  - **Mechanical lenses → the default subagent model is fine:** mutation tests,
+    browser/page state sequences, docs-vs-numbers checks, hostile inputs. They
+    need diligence and a fresh context more than raw reasoning.
+  - A "found nothing" from a small-model reviewer on the correctness lens is weak
+    evidence: do not count it toward the gate's Requirements Fit or Robustness.
 - **Treat findings as blocking.** Fix every real issue they surface, then
   **re-verify** (re-run tests + a fresh refute pass). Only when reviewers can no
   longer break it AND the four-axis gate is *honestly* ≥95 (no axis <15) does it
   ship. **Do not** shortcut or inflate the gate to save time — quality is the
   whole point of this loop; iterate as long as honest progress continues.
+- **Stop the refute rounds when one finds only low-severity issues.** Fix those,
+  re-run the tests, and score the gate; do not spawn another round for them.
+  Another round is due only after a round that found a medium-or-worse issue.
 - If it genuinely cannot reach ≥95 after real iteration, take the **fail path**
   (step 8) rather than shipping weak work.
 

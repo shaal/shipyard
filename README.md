@@ -20,26 +20,35 @@ The point is the **confidence gate**. Each task is scored on four 0–25 axes �
 
 ## Install
 
-Needs **[Node.js](https://nodejs.org) 18+**, **git**, and **Claude Code** on your `PATH`. Works on **Windows, macOS, and Linux**. Pick either — **no `npm install` required**:
+Needs **[Node.js](https://nodejs.org) 18+**, **git**, and **Claude Code** on your `PATH`. Works on **Windows, macOS, and Linux**.
 
-**Zero-install (npx)** — nothing left on your system but the skill files:
+> **Not on npm yet.** `npx @shaal/shipyard` and `npm install -g @shaal/shipyard` return 404 until the package is published. Use one of these instead:
+
+**Straight from GitHub (npx)** — nothing left on your system but the skill files:
 
 ```bash
-npx @shaal/shipyard init     # one-time: add /ship + /ship-next to ~/.claude
-npx @shaal/shipyard 5        # run the loop (prefix every command with npx)
+npx --allow-git=all github:shaal/shipyard init   # one-time: add /ship + /ship-next to ~/.claude
+npx --allow-git=all github:shaal/shipyard 5      # run the loop (prefix every command this way)
 ```
 
-**Global install** — shorter command, nicer if you'll use it often:
+npm 12 refuses git dependencies by default (`allow-git=none`), so the `--allow-git=all` flag is required there.
+
+**From a clone** — best if you edit shipyard itself:
 
 ```bash
-npm install -g @shaal/shipyard
+git clone https://github.com/shaal/shipyard ~/code/shipyard
+alias shipyard="node ~/code/shipyard/bin/shipyard.js"   # add to ~/.zshrc or ~/.bashrc
 shipyard init
 shipyard 5
 ```
 
-Run `… init` **once either way**: it copies the `/ship` skill into `~/.claude/skills/ship/` and the `/ship-next` command into `~/.claude/commands/ship-next.md` (cross-platform — uses your home dir, no symlinks). This is a *file copy* Claude Code loads from disk, so it's needed even with npx. Restart Claude Code and `/ship` + `/ship-next` are available everywhere.
+Once published, `npm install -g @shaal/shipyard` (then `shipyard init`) and `npx @shaal/shipyard …` work too.
 
-> Before it's on npm, run straight from GitHub: `npx github:shaal/shipyard init`. With npx, pin freshness via `npx @shaal/shipyard@latest …` to dodge a stale cache.
+Run `… init` **once**: it copies the `/ship` skill into `~/.claude/skills/ship/` and the `/ship-next` command into `~/.claude/commands/ship-next.md` (cross-platform — uses your home dir, no symlinks). This is a *file copy* Claude Code loads from disk, so it's needed even with npx. Restart Claude Code and `/ship` + `/ship-next` are available everywhere.
+
+**Re-running `init` never loses your edits.** It updates a file when the file is shipyard's own: its hash is in `~/.claude/.shipyard-manifest.json` (written on every install) or matches any version shipyard ever shipped (`assets/known-hashes.json`, so installs from before the manifest update too). It **keeps any other file** — you edited it by hand — lists it, and exits 1. `shipyard init --force` overwrites those too, after saving each one as `<file>.bak-<timestamp>`.
+
+After changing anything under `assets/skills/ship/` or `assets/commands/`, run `npm run known-hashes` and commit `assets/known-hashes.json` (`npm run known-hashes:check` fails if you forgot).
 
 ## Quick start
 
@@ -64,7 +73,7 @@ An explicit task file is **authoritative**: it overrides beads detection and
 auto-discovery, and the loop stops on its own once the file has no unchecked
 `- [ ]` boxes left (no need to pass an iteration cap).
 
-> Using npx instead of a global install? Prefix each command: `npx @shaal/shipyard 5`.
+> Using npx instead of a clone or global install? Prefix each command: `npx --allow-git=all github:shaal/shipyard 5`.
 
 Each iteration runs `claude -p "/ship-next"`, which finds the next unchecked task, branches off your target, completes it, runs an adversarial review, scores the gate, then **pushes, opens a PR, and squash-merges it back into the target**. Shipyard watches your git `HEAD`: if an iteration ships **no merge** (a task parked at the gate), it counts that as no-progress and stops after a couple of those — so it halts instead of spinning.
 
@@ -72,11 +81,11 @@ Each iteration runs `claude -p "/ship-next"`, which finds the next unchecked tas
 
 ## Tuning quality vs speed
 
-Shipyard defaults to **max quality**: `claude-opus-4-8` on every task, plus an adversarial-review pass (independent subagents that try to *refute* the work before the gate passes). That's thorough but slow (~10–25 min/task). Dial it with env vars:
+Shipyard defaults to **max quality**: `claude-opus-5-5` on every task, plus an adversarial-review pass (independent subagents that try to *refute* the work before the gate passes). That's thorough but slow (~10–25 min/task). Dial it with env vars:
 
 ```bash
 # Faster / cheaper — sonnet does the work, gate still runs:
-SHIPYARD_MODEL=claude-sonnet-4-6 shipyard
+SHIPYARD_MODEL=claude-sonnet-5-5 shipyard
 ```
 
 ## Configuration
@@ -87,7 +96,7 @@ All optional; sensible defaults:
 |---|---|---|
 | `SHIPYARD_CMD` | `/ship-next` | Slash command run each iteration. A project can ship its own `.claude/commands/ship-next.md` to override. |
 | `SHIPYARD_TASK_FILE` | — | Markdown `- [ ]` checklist to draw tasks from (same as `--tasks`; the flag wins if both set). Authoritative — overrides beads/auto-discovery, and the loop stops when the file has no unchecked boxes. |
-| `SHIPYARD_MODEL` | `claude-opus-4-8` | `--model` for claude. `claude-sonnet-4-6` for speed. |
+| `SHIPYARD_MODEL` | `claude-opus-5-5` | `--model` for claude. `claude-sonnet-5-5` for speed. |
 | `SHIPYARD_MCP` | `off` | `off` drops all MCP servers (faster cold start; none are needed to ship code). `on` keeps them. |
 | `SHIPYARD_PROGRESS_REF` | `HEAD` | Git ref whose advance = "a task shipped". Use `origin/<branch>` for a push flow. |
 | `SHIPYARD_READY_CMD` | auto | A command that succeeds while work remains. Auto-detects `bd ready` or `br ready` in a beads workspace, picking the CLI from `.beads/metadata.json` (Dolt → `bd`, SQLite → `br`). If that CLI is missing or its `ready` fails (for example, a `br` schema that needs `br doctor migrate-schema plan`), shipyard exits instead of looping; use `--tasks FILE` to bypass beads. A `.beads/` without a recognised `metadata.json` is ignored with a warning. Otherwise relies on stall-detection. |
