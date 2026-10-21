@@ -6,6 +6,11 @@
 // hand-edited. Re-run after changing anything under assets/skills/ship/ or
 // assets/commands/, and commit the result.
 //
+// The registry only grows: write mode merges with the committed file, and
+// --check fails only when a version is missing from it. A shallow clone, or a
+// squash merge that drops a branch's intermediate commits, therefore never
+// erases a hash that a real install might still carry.
+//
 //   node scripts/known-hashes.js           write assets/known-hashes.json
 //   node scripts/known-hashes.js --check   exit 1 if the file is out of date
 //
@@ -33,6 +38,8 @@ function walk(abs) {
 const installed = [...walk(join(ASSETS, 'skills', 'ship')), join(ASSETS, 'commands', 'ship-next.md')]
   .map((abs) => relative(ASSETS, abs).split(sep).join('/'));
 
+const committed = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : {};
+const missing = [];
 const known = {};
 for (const rel of installed) {
   const path = `assets/${rel}`;
@@ -42,14 +49,16 @@ for (const rel of installed) {
     try { hashes.add(sha256(git(['show', `${rev}:${path}`], { stdio: ['ignore', 'pipe', 'ignore'] }))); }
     catch { /* the file did not exist at this revision (a deleting commit) */ }
   }
-  known[rel] = [...hashes].sort();
+  const prior = committed[rel] || [];
+  for (const h of hashes) if (!prior.includes(h)) missing.push(`${rel} ${h.slice(0, 12)}`);
+  known[rel] = [...new Set([...prior, ...hashes])].sort();
 }
 
 const text = JSON.stringify(known, null, 2) + '\n';
 if (CHECK) {
-  const current = existsSync(OUT) ? readFileSync(OUT, 'utf8') : '';
-  if (current !== text) {
-    process.stderr.write('known-hashes: assets/known-hashes.json is out of date — run `npm run known-hashes`\n');
+  if (missing.length > 0) {
+    process.stderr.write(`known-hashes: assets/known-hashes.json lacks ${missing.length} version(s) — run \`npm run known-hashes\`\n`);
+    for (const m of missing) process.stderr.write(`  ${m}\n`);
     process.exit(1);
   }
   process.stdout.write('ok       assets/known-hashes.json\n');
